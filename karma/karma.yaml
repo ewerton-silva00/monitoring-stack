@@ -1,0 +1,7 @@
+alertmanager:
+  interval: 30s
+  servers:
+    - name: desenvolvimento
+      uri: http://alertmanager:9093
+      timeout: 10s
+      proxy: false

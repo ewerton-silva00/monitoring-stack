@@ -1,0 +1,217 @@
+version: '3.7'
+
+services:
+  # Traefik Documentation: https://docs.traefik.io/contributing/documentation/
+  traefik:
+    image: traefik:v2.1.2
+    container_name: traefik
+    ports:
+      - target: 80
+        published: 80
+        protocol: tcp
+        mode: host
+    volumes:
+    - /etc/localtime:/etc/localtime:ro
+    - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+    - public_network
+    command:
+    - --api
+    - --api.dashboard=true
+    - --api.insecure=true
+    - --providers.docker.exposedByDefault=false
+    - --providers.docker.swarmMode=false
+    - --providers.docker.network=public_network
+    - --entryPoints.http.address=:80
+    - --log.level=INFO
+    - --accesslog=true
+    - --ping=true
+    - --metrics
+    - --metrics.prometheus
+    - --metrics.prometheus.buckets=0.100000, 0.300000, 1.200000, 5.000000
+    - --metrics.prometheus.addEntryPointsLabels=true
+    - --metrics.prometheus.addServicesLabels=true
+    - --metrics.prometheus.entryPoint=metrics
+    - --entryPoints.metrics.address=:8082
+    labels:
+    - traefik.enable=true
+    - traefik.docker.network=public_network
+    # --- Enable dashboard access: http://traefik.meudominio.local/
+    - traefik.http.routers.dashboard.entryPoints=http
+    - traefik.http.routers.dashboard.rule=Host(`traefik.meudominio.local`)
+    - traefik.http.routers.dashboard.service=api@internal
+    # --- Enable Prometheus Metrics: http://traefik.meudominio.local/metrics
+    - traefik.http.routers.metrics.entryPoints=http
+    - traefik.http.routers.metrics.rule=Host(`traefik.meudominio.local`) && PathPrefix(`/metrics`)
+    - traefik.http.routers.metrics.service=prometheus@internal
+
+  # Portainer Documentation: https://portainer.readthedocs.io/en/1.23.1/
+  portainer:
+    image: portainer/portainer:1.23.1
+    container_name: portainer
+    command: -H unix:///var/run/docker.sock
+    # --- Password: portainer
+    #- --admin-password='$$2y$$05$$PL0/SdLIKNlPihkuUdlkaOIvidiWvjdIULlV0Iv1LG8lNT/950TZC'
+    volumes:
+    - /etc/localtime:/etc/localtime:ro
+    - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+    - public_network
+    labels:
+    - traefik.enable=true
+    - traefik.docker.network=public_network
+    - traefik.http.routers.portainer.entryPoints=http
+    - traefik.http.routers.portainer.rule=Host(`portainer.meudominio.local`)
+    - traefik.http.services.portainer.loadbalancer.server.port=9000
+
+  # Prometheus Documentation: https://prometheus.io/docs/prometheus/latest/getting_started/
+  prometheus:
+    image: prom/prometheus:v2.15.2
+    container_name: prometheus
+    command:
+    - --config.file=/etc/prometheus/prometheus.yml
+    - --storage.tsdb.retention.time=2d
+    - --web.enable-lifecycle
+    - --web.external-url=http://prometheus.meudominio.local
+    volumes:
+    - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+    networks:
+    - public_network
+    - private_network
+    labels:
+    - traefik.enable=true
+    - traefik.docker.network=public_network
+    - traefik.http.routers.prometheus.entryPoints=http
+    - traefik.http.routers.prometheus.rule=Host(`prometheus.meudominio.local`)
+
+  # AlertManager Documentation: https://prometheus.io/docs/alerting/overview/
+  alertmanager:
+    image: prom/alertmanager:v0.20.0
+    container_name: alertmanager
+    command:
+    - --config.file=/etc/alertmanager/alertmanager.yml
+    volumes:
+    - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    depends_on:
+      - prometheus
+    networks:
+    - public_network
+    labels:
+    - traefik.enable=true
+    - traefik.docker.network=public_network
+    - traefik.http.routers.alertmanager.entryPoints=http
+    - traefik.http.routers.alertmanager.rule=Host(`alertmanager.meudominio.local`)
+  
+  # Karma Documentation: https://github.com/prymitive/karma
+  karma:
+    image: lmierzwa/karma:v0.54
+    container_name: karma
+    environment:
+      ALERTMANAGER_URI: 'http://alertmanager:9093'
+    depends_on:
+    - alertmanager
+    networks:
+    - public_network
+    labels:
+    - traefik.enable=true
+    - traefik.docker.network=public_network
+    - traefik.http.routers.karma.entryPoints=http
+    - traefik.http.routers.karma.rule=Host(`karma.meudominio.local`)
+
+  # Grafana Documentation: https://grafana.com/docs/grafana/latest/installation/docker/
+  grafana:
+    image: grafana/grafana:6.6.0-ubuntu
+    container_name: grafana
+    environment:
+      TZ: 'America/Recife'
+      GF_SERVER_ROOT_URL: 'http://grafana.meudominio.local'
+      GF_SECURITY_ADMIN_USER: 'grafana'
+      GF_SECURITY_ADMIN_PASSWORD: 'grafana'
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_INSTALL_PLUGINS: 'grafana-clock-panel,grafana-simple-json-datasource,raintank-worldping-app,mtanda-histogram-panel'
+    depends_on:
+      - prometheus
+    networks:
+    - public_network
+    - private_network
+    labels:
+    - traefik.enable=true
+    - traefik.docker.network=public_network
+    - traefik.http.routers.grafana.entryPoints=http
+    - traefik.http.routers.grafana.rule=Host(`grafana.meudominio.local`)
+  
+  # Consul Documentation: https://learn.hashicorp.com/consul/day-0/containers-guide
+  consul:
+    image: consul:1.7.0
+    container_name: consul
+    command: agent -server -ui -datacenter esig -bind='{{ GetInterfaceIP "eth0" }}' -client 0.0.0.0 -bootstrap-expect 1 -log-level info
+    environment:
+      CONSUL_BIND_INTERFACE: 'eth0'
+    networks:
+    - public_network
+    - private_network
+    labels:
+    - traefik.enable=true
+    - traefik.docker.network=public_network
+    - traefik.http.routers.consul.entryPoints=http
+    - traefik.http.routers.consul.rule=Host(`consul.meudominio.local`)
+    - traefik.http.services.consul.loadbalancer.server.port=8500
+
+  # Consul Exporter Documentation: https://github.com/prometheus/consul_exporter
+  consul-exporter:
+    image: prom/consul-exporter:v0.6.0
+    container_name: consul-exporter
+    command: --consul.server=consul:8500
+    networks:
+    - private_network
+
+  # RocketChat Documentation: https://rocket.chat/docs/installation/docker-containers/
+  rocketchat:
+    image: store/rocketchat/rocket.chat:2.2.0
+    container_name: rocketchat
+    command: >
+      bash -c 'for i in `seq 1 30`; do node main.js &&      
+      s=$$? && break || s=$$?; echo "Tried $$i times. Waiting 5 secs...";
+      sleep 5; done; (exit $$s)'
+    environment:
+      PORT: '3000'
+      ROOT_URL: 'http://chat.meudominio.local'
+      MONGO_URL: 'mongodb://mongo:27017/rocketchat'
+      MONGO_OPLOG_URL: 'mongodb://mongo:27017/local'
+      Accounts_UseDNSDomainCheck: 'True'
+    depends_on:
+    - mongo
+    networks:
+    - public_network
+    - private_network
+    labels:
+    - traefik.enable=true
+    - traefik.docker.network=public_network
+    - traefik.http.routers.chat.entryPoints=http
+    - traefik.http.routers.chat.rule=Host(`chat.meudominio.local`)
+    - traefik.http.services.chat.loadbalancer.server.port=3000
+
+  # MongoDB Documentation: https://hub.docker.com/_/mongo
+  mongo:
+    image: mongo:4.2.3-bionic
+    container_name: mongo
+    command: mongod --oplogSize 128 --replSet rs0
+    networks:
+    - private_network
+
+  # MongoDB Documentation: https://hub.docker.com/_/mongo
+  mongo-init-replica:
+    image: mongo:4.2.3-bionic
+    container_name: mongo-init-replica
+    command: 'mongo mongo/rocketchat --eval "rs.initiate({ _id: ''rs0'', members: [ { _id: 0, host: ''localhost:27017'' } ]})"'
+    depends_on:
+    - mongo
+    networks:
+    - private_network 
+
+networks:
+  public_network:
+    external: true
+  private_network:
+    driver: bridge

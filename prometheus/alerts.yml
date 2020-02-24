@@ -1,0 +1,12 @@
+---
+groups:
+  - name: ServiceStatus
+    rules:
+    - alert: SystemUnavailable
+      expr: probe_http_status_code != 200
+      for: 1m
+      labels:
+        severity: major
+      annotations:
+        description: 'O sistema {{ $labels.instance }} encontra-se indisponível.'
+        value: '{{ $value }}'
