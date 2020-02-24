@@ -208,7 +208,27 @@ services:
     depends_on:
     - mongo
     networks:
-    - private_network 
+    - private_network
+
+  # cAdvisor Documentation: https://github.com/google/cadvisor
+  cadvisor:
+    image: google/cadvisor:v0.33.0
+    container_name: cadvisor
+    volumes:
+    - /:/rootfs:ro
+    - /var/run:/var/run:rw
+    - /sys:/sys:ro
+    - /dev/disk/:/dev/disk:ro
+    - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+    - public_network
+    - private_network
+    labels:
+    - traefik.enable=true
+    - traefik.docker.network=public_network
+    - traefik.http.routers.cadvisor.entryPoints=http
+    - traefik.http.routers.cadvisor.rule=Host(`cadvisor.meudominio.local`)
+    - traefik.http.services.cadvisor.loadbalancer.server.port=8080
 
 networks:
   public_network:

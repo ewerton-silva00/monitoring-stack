@@ -39,3 +39,10 @@ scrape_configs:
       - targets: ['consul-exporter:9107']
         labels:
           environment: 'homelab'
+
+  - job_name: 'cadvisor'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['cadvisor:8080']
+        labels:
+          environment: 'homelab'
