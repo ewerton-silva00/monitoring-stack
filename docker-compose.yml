@@ -16,9 +16,9 @@ services:
     networks:
     - public_network
     command:
-    - --api
+    - --api=true
     - --api.dashboard=true
-    - --api.insecure=true
+    #- --api.insecure=false
     - --providers.docker.exposedByDefault=false
     - --providers.docker.swarmMode=false
     - --providers.docker.network=public_network
@@ -36,10 +36,13 @@ services:
     labels:
     - traefik.enable=true
     - traefik.docker.network=public_network
-    # --- Enable dashboard access: http://traefik.meudominio.local/
+    # --- Enable dashboard access: http://traefik.meudominio.local/ protected by password
     - traefik.http.routers.dashboard.entryPoints=http
     - traefik.http.routers.dashboard.rule=Host(`traefik.meudominio.local`)
     - traefik.http.routers.dashboard.service=api@internal
+    - traefik.http.routers.dashboard.middlewares=traefik-auth
+    # --- User: admin, Password: password
+    - traefik.http.middlewares.traefik-auth.basicauth.users=admin:$$apr1$$0ON0eMjB$$5F1vytsJjC1MJe0mu12o71
     # --- Enable Prometheus Metrics: http://traefik.meudominio.local/metrics
     - traefik.http.routers.metrics.entryPoints=http
     - traefik.http.routers.metrics.rule=Host(`traefik.meudominio.local`) && PathPrefix(`/metrics`)
